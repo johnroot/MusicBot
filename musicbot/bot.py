@@ -23,6 +23,8 @@ from .opus_loader import load_opus_lib
 from random import choice
 from datetime import timedelta
 
+from collections import deque
+
 VERSION = '2.0'
 
 load_opus_lib()
@@ -63,6 +65,8 @@ class MusicBot(discord.Client):
         self.blacklist = set(map(int, load_file(self.config.blacklist_file)))
         self.whitelist = set(map(int, load_file(self.config.whitelist_file)))
         self.backuplist = load_file(self.config.backup_playlist_file)
+
+        self.recentlyplayed = deque([])
 
         self.last_np_msg = None
 
@@ -177,6 +181,14 @@ class MusicBot(discord.Client):
     async def on_finished_playing(self, player, **_):
         if not player.playlist.entries and self.config.auto_playlist:
             song_url = choice(self.backuplist)
+            
+            while (song_url in self.recentlyplayed):
+                song_url = choice(self.backuplist)
+            
+            self.recentlyplayed.append(song_url)
+            if (len(self.recentlyplayed) > 50):
+                self.recentlyplayed.popleft()
+
             await player.playlist.add_entry(song_url, channel=None, author=None)
 
 
@@ -375,6 +387,10 @@ class MusicBot(discord.Client):
             if song_url not in self.backuplist:
                 self.backuplist.append(song_url)
                 write_file('./config/backuplist.txt', self.backuplist)
+
+            self.recentlyplayed.append(song_url);
+            if (len(self.recentlyplayed) > 50):
+                self.recentlyplayed.popleft()
 
             if 'entries' in info:
                 t0 = time.time()
