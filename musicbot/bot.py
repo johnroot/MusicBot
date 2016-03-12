@@ -16,7 +16,7 @@ from musicbot.playlist import Playlist
 from musicbot.utils import load_file, extract_user_id, write_file
 
 from .downloader import extract_info
-from .exceptions import CommandError
+from .exceptions import CommandError, ExtractionError
 from .constants import DISCORD_MSG_CHAR_LIMIT
 from .opus_loader import load_opus_lib
 
@@ -180,17 +180,27 @@ class MusicBot(discord.Client):
 
     async def on_finished_playing(self, player, **_):
         if not player.playlist.entries and self.config.auto_playlist:
-            song_url = choice(self.backuplist)
-            
-            while (song_url in self.recentlyplayed):
-                song_url = choice(self.backuplist)
-            
+            added_song = False;
+
+            while (not added_song):
+                try:
+                    song_url = choice(self.backuplist)
+                    while (song_url in self.recentlyplayed):
+                        song_url = choice(self.backuplist)
+                    await player.playlist.add_entry(song_url, channel=None, author=None)
+                    added_song = True
+                    print("Added " + song_url + " to the queue.")
+                except ExtractionError:
+                    print("Could not extract information from " + song_url)
+                    if (song_url in self.backuplist):
+                        self.backuplist.remove(song_url)
+                    write_file('./config/backuplist.txt', self.backuplist)
+
             self.recentlyplayed.append(song_url)
             if (len(self.recentlyplayed) > 50):
                 self.recentlyplayed.popleft()
-
-            await player.playlist.add_entry(song_url, channel=None, author=None)
-
+                    
+                
 
     def update_now_playing(self, entry=None, is_paused=False):
         game = None
@@ -388,7 +398,7 @@ class MusicBot(discord.Client):
                 self.backuplist.append(song_url)
                 write_file('./config/backuplist.txt', self.backuplist)
 
-            self.recentlyplayed.append(song_url);
+            self.recentlyplayed.append(song_url)
             if (len(self.recentlyplayed) > 50):
                 self.recentlyplayed.popleft()
 
