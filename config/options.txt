@@ -1,11 +1,11 @@
 [Credentials]
 ; The bot needs its own account to run on (not yours)
-Username = my@email
-Password = your_password
+Username = johnathonroot@yahoo.com
+Password = RhinoBot2015
 
 [Permissions]
 ; This need to be your id, not the bot's id.  The bot does not own the bot.  You do.
-OwnerID = 000000000000000000
+OwnerID = 66316706691158016
 
 [Chat]
 ; Change this if you don't want commands to trigger another bot

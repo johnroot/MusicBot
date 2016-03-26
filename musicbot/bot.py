@@ -3,7 +3,7 @@ import inspect
 import traceback
 import asyncio
 import discord
-import sys
+import win_unicode_console
 
 from discord import utils
 from discord.enums import ChannelType
@@ -24,9 +24,6 @@ from random import choice
 from datetime import timedelta
 
 from collections import deque
-# if sys.platform.startswith('win'):
-#     import win_unicode_console
-#     win_unicode_console.enable()
 
 VERSION = '2.0'
 
@@ -188,20 +185,31 @@ class MusicBot(discord.Client):
             while (not added_song):
                 try:
                     song_url = choice(self.backuplist)
+                    
                     while (song_url in self.recentlyplayed):
                         song_url = choice(self.backuplist)
-                    await player.playlist.add_entry(song_url, channel=None, author=None)
-                    added_song = True
-                    print("Added " + song_url + " to the queue.")
+                    
+                    info = await extract_info(player.playlist.loop, song_url, download=False, process=False)
+                    if 'entries' in info:
+                        print("Can't add a playlist from the backup list: " + song_url)
+                        if (song_url in self.backuplist):
+                            self.backuplist.remove(song_url)
+                            write_file('./config/backuplist.txt', self.backuplist)
+                    else:
+                        await player.playlist.add_entry(song_url, channel=None, author=None)
+                        added_song = True
+                        print("Added " + song_url + " to the queue.")
                 except ExtractionError:
                     print("Could not extract information from " + song_url)
                     if (song_url in self.backuplist):
                         self.backuplist.remove(song_url)
-                    write_file('./config/backuplist.txt', self.backuplist)
+                        write_file('./config/backuplist.txt', self.backuplist)
 
             self.recentlyplayed.append(song_url)
             if (len(self.recentlyplayed) > 50):
                 self.recentlyplayed.popleft()
+                    
+                
 
     def update_now_playing(self, entry=None, is_paused=False):
         game = None
@@ -218,27 +226,21 @@ class MusicBot(discord.Client):
         return super().run(self.config.username, self.config.password)
 
     async def on_ready(self):
+        win_unicode_console.enable()
+
         print('Connected!\n')
         print('Username: %s' % self.user.name)
         print('Bot ID: %s' % self.user.id)
         print('Owner ID: %s' % self.config.owner_id)
-
-        if self.config.owner_id == self.user.id:
-            print("\n"
-                "[NOTICE] You have either set the OwnerID config option to the bot's id instead "
-                "of yours, or you've used your own credentials to log the bot in instead of the "
-                "bot's account (the bot needs its own account to work properly).")
         print()
 
-        # TODO: Make this prettier and easier to read (in the console)
         print("Command prefix is %s" % self.config.command_prefix)
         # print("Days active required to use commands is %s" % self.config.days_active) # NYI
+        print("Skip threshold at %s votes or %g%%" % (self.config.skips_required, self.config.skip_ratio_required*100))
         print("Whitelist check is %s" % ['disabled', 'enabled'][self.config.white_list_check])
-        print("Skip threshold at %s votes or %s%%" % (self.config.skips_required, self._fixg(self.config.skip_ratio_required*100)))
         print("Now Playing message @mentions are %s" % ['disabled', 'enabled'][self.config.now_playing_mentions])
         print("Autosummon is %s" % ['disabled', 'enabled'][self.config.auto_summon])
         print("Auto-playlist is %s" % ['disabled', 'enabled'][self.config.auto_playlist])
-        print("Downloaded songs will be %s after playback" % ['deleted', 'saved'][self.config.save_videos])
         print()
 
         if self.servers:
@@ -248,6 +250,12 @@ class MusicBot(discord.Client):
             print("No servers have been joined yet.")
 
         print()
+
+        if self.config.owner_id == self.user.id:
+            print(
+                "[Notice] You have either set the OwnerID config option to the bot's id instead "
+                "of yours, or you've used your own credentials to log the bot in instead of the "
+                "bot's account (the bot needs its own account to work properly).")
 
         # maybe option to leave the ownerid blank and generate a random command for the owner to use
 
@@ -274,28 +282,15 @@ class MusicBot(discord.Client):
                 if discord.utils.get(channel.voice_members, id=self.config.owner_id):
                     return channel
 
-    def _fixg(self, x, dp=2):
-        return ('{:.%sf}' % dp).format(x).rstrip('0').rstrip('.')
 
 
-    async def handle_help(self):
+    async def handle_help(self, message):
         """
         Usage: {command_prefix}help
         Prints a help message
         """
-        helpmsg = "**Commands**\n```"
-        commands = []
-
-        # TODO: Get this to format nicely
-        for att in dir(self):
-            if att.startswith('handle_') and att != 'handle_help':
-                command_name = att.replace('handle_', '').lower()
-                commands.append("{}{}".format(self.config.command_prefix, command_name))
-
-        helpmsg += ", ".join(commands)
-        helpmsg += "```"
-        helpmsg += "https://github.com/SexualRhinoceros/MusicBot/wiki/Commands-list"
-
+        helpmsg = "https://github.com/SexualRhinoceros/MusicBot/wiki/Commands-list" # THIS IS TEMPORARY
+        # Maybe there's a clever way to do this
         return Response(helpmsg, reply=True, delete_after=60)
 
     async def handle_whitelist(self, message, option, username):
@@ -408,14 +403,6 @@ class MusicBot(discord.Client):
             if not info:
                 raise CommandError("That video cannot be played.")
 
-            if song_url not in self.backuplist:
-                self.backuplist.append(song_url)
-                write_file('./config/backuplist.txt', self.backuplist)
-
-            self.recentlyplayed.append(song_url)
-            if (len(self.recentlyplayed) > 50):
-                self.recentlyplayed.popleft()
-
             if 'entries' in info:
                 t0 = time.time()
 
@@ -431,13 +418,23 @@ class MusicBot(discord.Client):
                 procmesg = await self.send_message(channel,
                     'Gathering playlist information for {} songs{}'.format(
                         num_songs,
-                        ', ETA: {} seconds'.format(self._fixg(num_songs*wait_per_song)) if num_songs >= 10 else '.'))
+                        ', ETA: {:g} seconds'.format(num_songs*wait_per_song) if num_songs >= 10 else '.'))
 
                 # We don't have a pretty way of doing this yet.  We need either a loop
                 # that sends these every 10 seconds or a nice context manager.
                 await self.send_typing(channel)
 
                 entry_list, position = await player.playlist.import_from(song_url, channel=channel, author=author)
+
+                for entry in entry_list:
+                    if entry.url not in self.backuplist:
+                        self.backuplist.append(song_url)
+                        write_file('./config/backuplist.txt', self.backuplist)
+
+                    self.recentlyplayed.append(song_url)
+                    if (len(self.recentlyplayed) > 50):
+                        self.recentlyplayed.popleft()
+                
                 entry = entry_list[0]
 
                 tnow = time.time()
@@ -445,16 +442,21 @@ class MusicBot(discord.Client):
                 listlen = len(entry_list)
 
                 print("Processed {} songs in {} seconds at {:.2f}s/song, {:+.2g}/song from expected ({}s)".format(
-                    listlen,
-                    self._fixg(ttime),
-                    ttime/listlen,
-                    ttime/listlen - wait_per_song,
-                    self._fixg(wait_per_song*num_songs))
+                    listlen, '{:.2f}'.format(ttime).rstrip('0').rstrip('.'), ttime/listlen,
+                    ttime/listlen - wait_per_song, wait_per_song*num_songs)
                 )
 
                 await self.delete_message(procmesg)
 
             else:
+                if song_url not in self.backuplist:
+                    self.backuplist.append(song_url)
+                    write_file('./config/backuplist.txt', self.backuplist)
+
+                self.recentlyplayed.append(song_url)
+                if (len(self.recentlyplayed) > 50):
+                    self.recentlyplayed.popleft()
+
                 entry, position = await player.playlist.add_entry(song_url, channel=channel, author=author)
 
             time_until = await player.playlist.estimate_time_until(position, player)
@@ -707,8 +709,6 @@ class MusicBot(discord.Client):
         Removes [amount] messages the bot has posted in chat.
         """
         pass
-
-
 
     async def on_message(self, message):
         if message.author == self.user:
