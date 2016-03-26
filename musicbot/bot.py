@@ -188,16 +188,25 @@ class MusicBot(discord.Client):
             while (not added_song):
                 try:
                     song_url = choice(self.backuplist)
+                    
                     while (song_url in self.recentlyplayed):
                         song_url = choice(self.backuplist)
-                    await player.playlist.add_entry(song_url, channel=None, author=None)
-                    added_song = True
-                    print("Added " + song_url + " to the queue.")
+                    
+                    info = await extract_info(player.playlist.loop, song_url, download=False, process=False)
+                    if 'entries' in info:
+                        print("Can't add a playlist from the backup list: " + song_url)
+                        if (song_url in self.backuplist):
+                            self.backuplist.remove(song_url)
+                            write_file('./config/backuplist.txt', self.backuplist)
+                    else:
+                        await player.playlist.add_entry(song_url, channel=None, author=None)
+                        added_song = True
+                        print("Added " + song_url + " to the queue.")
                 except ExtractionError:
                     print("Could not extract information from " + song_url)
                     if (song_url in self.backuplist):
                         self.backuplist.remove(song_url)
-                    write_file('./config/backuplist.txt', self.backuplist)
+                        write_file('./config/backuplist.txt', self.backuplist)
 
             self.recentlyplayed.append(song_url)
             if (len(self.recentlyplayed) > 50):
@@ -408,14 +417,6 @@ class MusicBot(discord.Client):
             if not info:
                 raise CommandError("That video cannot be played.")
 
-            if song_url not in self.backuplist:
-                self.backuplist.append(song_url)
-                write_file('./config/backuplist.txt', self.backuplist)
-
-            self.recentlyplayed.append(song_url)
-            if (len(self.recentlyplayed) > 50):
-                self.recentlyplayed.popleft()
-
             if 'entries' in info:
                 t0 = time.time()
 
@@ -438,6 +439,16 @@ class MusicBot(discord.Client):
                 await self.send_typing(channel)
 
                 entry_list, position = await player.playlist.import_from(song_url, channel=channel, author=author)
+
+                for entry in entry_list:
+                    if entry.url not in self.backuplist:
+                        self.backuplist.append(entry.url)
+                        write_file('./config/backuplist.txt', self.backuplist)
+
+                    self.recentlyplayed.append(entry.url)
+                    if (len(self.recentlyplayed) > 50):
+                        self.recentlyplayed.popleft()
+
                 entry = entry_list[0]
 
                 tnow = time.time()
@@ -455,6 +466,14 @@ class MusicBot(discord.Client):
                 await self.delete_message(procmesg)
 
             else:
+                if song_url not in self.backuplist:
+                    self.backuplist.append(song_url)
+                    write_file('./config/backuplist.txt', self.backuplist)
+
+                self.recentlyplayed.append(song_url)
+                if (len(self.recentlyplayed) > 50):
+                    self.recentlyplayed.popleft()
+
                 entry, position = await player.playlist.add_entry(song_url, channel=channel, author=author)
 
             time_until = await player.playlist.estimate_time_until(position, player)
