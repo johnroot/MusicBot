@@ -1,7 +1,7 @@
 [Credentials]
 ; The bot needs its own account to run on (not yours)
-Username = johnathonroot@yahoo.com
-Password = RhinoBot2015
+Username = 
+Password = 
 
 [Permissions]
 ; This need to be your id, not the bot's id.  The bot does not own the bot.  You do.
